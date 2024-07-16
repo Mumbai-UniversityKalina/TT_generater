@@ -54,8 +54,11 @@ def save_timetable_to_pocketbase(start_date, end_date, selected_course_id):
         "course_exam_start_date": start_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
         "course_exam_end_date": end_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
         "exam_of": selected_course_id,
-        
-
+        "scores": True,
+        "marksheet_distribution": True,
+        "result_date": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+        "tt_released": True,
+        "tt_release_date": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
     }
 
     response = requests.post(f'{POCKETBASE_URL}/api/collections/exams/records', headers=HEADERS, json=timetable_data)
@@ -104,15 +107,18 @@ def main():
                     selected_subjects[subject['subject_name']] = subject
 
             if selected_subjects:
-                # Step 4: Set Dates and Time Slot for Selected Subjects
-                dates_with_days = [f"{date.strftime('%Y-%m-%d')} ({day})" for date, day in valid_dates]
+                # Step 4: Set Common Time Slot for All Subjects
+                st.write("Set common time slot for all subjects:")
+                start_time = st.text_input('Start time (e.g., 9:00 AM)', value='9:00 AM')
+                end_time = st.text_input('End time (e.g., 12:00 PM)', value='12:00 PM')
+
+                # Step 5: Set Dates for Selected Subjects
                 timetable_data = []
                 for subject_name, subject in selected_subjects.items():
                     with st.expander(f'{subject_name}'):
+                        dates_with_days = [f"{date.strftime('%Y-%m-%d')} ({day})" for date, day in valid_dates]
                         selected_dates = st.multiselect(f'Select Dates for {subject_name}', dates_with_days)
                         selected_date_objs = [date for date, day in valid_dates if f"{date.strftime('%Y-%m-%d')} ({day})" in selected_dates]
-                        start_time = st.text_input(f'Start time for {subject_name} (e.g., 9:00 AM)', value='9:00 AM')
-                        end_time = st.text_input(f'End time for {subject_name} (e.g., 12:00 PM)', value='12:00 PM')
 
                         for date in selected_date_objs:
                             timetable_data.append({'Date': date.strftime('%d/%m/%Y'), 'Subject': subject_name, 'Time': f'{start_time} to {end_time}'})
