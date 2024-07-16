@@ -54,11 +54,8 @@ def save_timetable_to_pocketbase(start_date, end_date, selected_course_id):
         "course_exam_start_date": start_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
         "course_exam_end_date": end_date.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
         "exam_of": selected_course_id,
-        "scores": True,
-        "marksheet_distribution": True,
-        "result_date": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-        "tt_released": True,
-        "tt_release_date": datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        
+
     }
 
     response = requests.post(f'{POCKETBASE_URL}/api/collections/exams/records', headers=HEADERS, json=timetable_data)
@@ -89,56 +86,52 @@ def main():
 
             # Generate a list of dates excluding Sundays
             all_dates = pd.date_range(start=start_date, end=end_date)
-            available_dates = list(filter(is_not_sunday, all_dates))
+            available_dates = [(date, date.strftime('%A')) for date in all_dates if is_not_sunday(date)]
 
-            # Step 3: Set Dates for Subjects
+            # Allow users to select holidays
+            st.write("Select holidays to exclude:")
+            holiday_dates = st.multiselect('Select Holidays', available_dates, format_func=lambda x: x[0].strftime('%Y-%m-%d'))
+
+            # Exclude selected holidays
+            valid_dates = [(date, day) for date, day in available_dates if date not in [holiday[0] for holiday in holiday_dates]]
+
+            # Step 3: Select Subjects
+            st.write(f"Select subjects for {selected_course_name}:")
             subjects = fetch_subjects(selected_course['id'])
-            subject_dates = {}
-            selected_dates = set()
+            selected_subjects = {}
+            for subject in subjects:
+                if st.checkbox(subject['subject_name']):
+                    selected_subjects[subject['subject_name']] = subject
 
-            st.write(f"Set dates and times for subjects in {selected_course_name} (excluding Sundays):")
-
-            for i, subject in enumerate(subjects):
-                with st.expander(f'{subject["subject_name"]}'):
-                    while True:
-                        try:
-                            date = st.date_input(f'Select date for {subject["subject_name"]}', value=start_date, key=f'{subject["id"]}_{i}', min_value=start_date, max_value=end_date)
-                            if date.weekday() == 6:
-                                st.error(f'The date {date.strftime("%d/%m/%Y")} is a Sunday. Please choose a different date.')
-                            elif date in selected_dates:
-                                st.error(f'The date {date.strftime("%d/%m/%Y")} is already selected. Please choose a different date.')
-                            else:
-                                break
-                        except Exception as e:
-                            st.error(f'Error: {e}')
-                            break
-
-                    # Add time range input for the subject
-                    start_time = st.text_input(f'Start time for {subject["subject_name"]} (e.g., 9:00 AM)', key=f'{subject["id"]}_start_time_{i}')
-                    end_time = st.text_input(f'End time for {subject["subject_name"]} (e.g., 12:00 PM)', key=f'{subject["id"]}_end_time_{i}')
-
-                    subject_dates[subject['subject_name']] = {'date': date, 'time': f'{start_time} to {end_time}'}
-                    selected_dates.add(date)
-
-            if st.button('Generate Timetable'):
+            if selected_subjects:
+                # Step 4: Set Dates and Time Slot for Selected Subjects
+                dates_with_days = [f"{date.strftime('%Y-%m-%d')} ({day})" for date, day in valid_dates]
                 timetable_data = []
-                for subject, info in subject_dates.items():
-                    timetable_data.append({'Date': info['date'].strftime('%d/%m/%Y'), 'Subject': subject, 'Time': info['time']})
-                
-                timetable_df = pd.DataFrame(timetable_data)
-                st.write('### Generated Timetable')
-                st.dataframe(timetable_df)
-                
-                pdf = create_pdf(timetable_df)
-                pdf_output = pdf.output(dest='S').encode('latin1')
-                st.download_button(label='Download Timetable as PDF', data=pdf_output, file_name='timetable.pdf', mime='application/pdf')
-                
-                # Save timetable to PocketBase
-                success, response = save_timetable_to_pocketbase(start_date, end_date, selected_course['id'])
-                if success:
-                    st.success("Timetable successfully saved to PocketBase.")
-                else:
-                    st.error(f"Failed to save timetable to PocketBase: {response}")
+                for subject_name, subject in selected_subjects.items():
+                    with st.expander(f'{subject_name}'):
+                        selected_dates = st.multiselect(f'Select Dates for {subject_name}', dates_with_days)
+                        selected_date_objs = [date for date, day in valid_dates if f"{date.strftime('%Y-%m-%d')} ({day})" in selected_dates]
+                        start_time = st.text_input(f'Start time for {subject_name} (e.g., 9:00 AM)', value='9:00 AM')
+                        end_time = st.text_input(f'End time for {subject_name} (e.g., 12:00 PM)', value='12:00 PM')
+
+                        for date in selected_date_objs:
+                            timetable_data.append({'Date': date.strftime('%d/%m/%Y'), 'Subject': subject_name, 'Time': f'{start_time} to {end_time}'})
+
+                if st.button('Generate Timetable'):
+                    timetable_df = pd.DataFrame(timetable_data)
+                    st.write('### Generated Timetable')
+                    st.dataframe(timetable_df)
+                    
+                    pdf = create_pdf(timetable_df)
+                    pdf_output = pdf.output(dest='S').encode('latin1')
+                    st.download_button(label='Download Timetable as PDF', data=pdf_output, file_name='timetable.pdf', mime='application/pdf')
+                    
+                    # Save timetable to PocketBase
+                    success, response = save_timetable_to_pocketbase(start_date, end_date, selected_course['id'])
+                    if success:
+                        st.success("Timetable successfully saved to PocketBase.")
+                    else:
+                        st.error(f"Failed to save timetable to PocketBase: {response}")
 
 if __name__ == "__main__":
     main()
